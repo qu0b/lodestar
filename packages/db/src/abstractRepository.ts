@@ -119,6 +119,17 @@ export abstract class BinaryRepository<I extends Id> {
     await this.db.delete(this.encodeKey(id), this.dbReqOpts);
   }
 
+  async batchDelete(ids: I[]): Promise<void> {
+    if (ids.length === 1) {
+      return this.delete(ids[0]);
+    }
+
+    await this.db.batchDelete(
+      Array.from({length: ids.length}, (_, i) => this.encodeKey(ids[i])),
+      this.dbReqOpts
+    );
+  }
+
   /**
    * Transforms opts from I to Uint8Array
    */
@@ -213,17 +224,6 @@ export abstract class Repository<I extends Id, T> extends BinaryRepository<I> {
         key: this.encodeKey(items[i].key),
         value: this.encodeValue(items[i].value),
       })),
-      this.dbReqOpts
-    );
-  }
-
-  async batchDelete(ids: I[]): Promise<void> {
-    if (ids.length === 1) {
-      return this.delete(ids[0]);
-    }
-
-    await this.db.batchDelete(
-      Array.from({length: ids.length}, (_, i) => this.encodeKey(ids[i])),
       this.dbReqOpts
     );
   }
