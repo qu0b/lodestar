@@ -587,8 +587,11 @@ export class BeaconChain implements IBeaconChain {
       };
     }
 
-    const data = await this.db.stateArchive.getByRoot(fromHex(stateRoot));
-    return data && {state: data, executionOptimistic: false, finalized: true};
+    // we can do a `this.db.stateArchive.getByRoot()` here, but
+    // returning 1 per 100s of states that are persisted in the archive state is not useful enough
+    // and it causes consumers having to loadState and createCachedBeaconState again
+    // if state is finalized, consumers need to use getHistoricalStateBySlot() api instead
+    return null;
   }
 
   async getPersistedCheckpointState(checkpoint?: phase0.Checkpoint): Promise<Uint8Array | null> {
