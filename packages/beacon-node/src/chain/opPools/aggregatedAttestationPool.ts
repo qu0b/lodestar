@@ -47,6 +47,7 @@ import {MapDef, assert, toRootHex} from "@lodestar/utils";
 import {Metrics} from "../../metrics/metrics.js";
 import {IntersectResult, intersectUint8Arrays} from "../../util/bitArray.js";
 import {getShufflingDependentRoot} from "../../util/dependentRoot.js";
+import {ShufflingCache} from "../shufflingCache.js";
 import {InsertOutcome} from "./types.js";
 import {pruneBySlot, signatureFromBytesNoCheck} from "./utils.js";
 
@@ -230,11 +231,16 @@ export class AggregatedAttestationPool {
     this.lowestPermissibleSlot = Math.max(clockSlot - slotsToRetain, 0);
   }
 
-  getAttestationsForBlock(fork: ForkName, forkChoice: IForkChoice, state: CachedBeaconStateAllForks): Attestation[] {
+  getAttestationsForBlock(
+    fork: ForkName,
+    forkChoice: IForkChoice,
+    shufflingCache: ShufflingCache,
+    state: CachedBeaconStateAllForks
+  ): Attestation[] {
     const forkSeq = ForkSeq[fork];
     return forkSeq >= ForkSeq.electra
-      ? this.getAttestationsForBlockElectra(fork, forkChoice, state)
-      : this.getAttestationsForBlockPreElectra(fork, forkChoice, state);
+      ? this.getAttestationsForBlockElectra(fork, forkChoice, shufflingCache, state)
+      : this.getAttestationsForBlockPreElectra(fork, forkChoice, shufflingCache, state);
   }
 
   /**
@@ -243,13 +249,14 @@ export class AggregatedAttestationPool {
   getAttestationsForBlockPreElectra(
     fork: ForkName,
     forkChoice: IForkChoice,
+    shufflingCache: ShufflingCache,
     state: CachedBeaconStateAllForks
   ): phase0.Attestation[] {
     const stateSlot = state.slot;
     const stateEpoch = state.epochCtx.epoch;
     const statePrevEpoch = stateEpoch - 1;
 
-    const notSeenValidatorsFn = getNotSeenValidatorsFn(this.config, state);
+    const notSeenValidatorsFn = getNotSeenValidatorsFn(this.config, shufflingCache, state);
     const validateAttestationDataFn = getValidateAttestationDataFn(forkChoice, state);
 
     const attestationsByScore: AttestationWithScore[] = [];
@@ -355,6 +362,7 @@ export class AggregatedAttestationPool {
   getAttestationsForBlockElectra(
     fork: ForkName,
     forkChoice: IForkChoice,
+    shufflingCache: ShufflingCache,
     state: CachedBeaconStateAllForks
   ): electra.Attestation[] {
     const stateSlot = state.slot;
@@ -362,7 +370,7 @@ export class AggregatedAttestationPool {
     const statePrevEpoch = stateEpoch - 1;
     const rootCache = new RootCache(state);
 
-    const notSeenValidatorsFn = getNotSeenValidatorsFn(this.config, state);
+    const notSeenValidatorsFn = getNotSeenValidatorsFn(this.config, shufflingCache, state);
     const validateAttestationDataFn = getValidateAttestationDataFn(forkChoice, state);
 
     const slots = Array.from(this.attestationGroupByIndexByDataHexBySlot.keys()).sort((a, b) => b - a);
@@ -864,7 +872,11 @@ export function aggregateConsolidation({byCommittee, attData}: AttestationsConso
  * Pre-compute participation from a CachedBeaconStateAllForks, for use to check if an attestation's committee
  * has already attested or not.
  */
-export function getNotSeenValidatorsFn(config: BeaconConfig, state: CachedBeaconStateAllForks): GetNotSeenValidatorsFn {
+export function getNotSeenValidatorsFn(
+  config: BeaconConfig,
+  shufflingCache: ShufflingCache,
+  state: CachedBeaconStateAllForks
+): GetNotSeenValidatorsFn {
   const stateSlot = state.slot;
   if (config.getForkName(stateSlot) === ForkName.phase0) {
     // Get attestations to be included in a phase0 block.
@@ -927,7 +939,8 @@ export function getNotSeenValidatorsFn(config: BeaconConfig, state: CachedBeacon
       return notSeenCommitteeMembers.size === 0 ? null : notSeenCommitteeMembers;
     }
 
-    const committee = state.epochCtx.getBeaconCommittee(slot, committeeIndex);
+    const decisionRoot = state.epochCtx.getShufflingDecisionRoot(computeEpochAtSlot(slot));
+    const committee = shufflingCache.getBeaconCommittee(epoch, decisionRoot, slot, committeeIndex);
     notSeenCommitteeMembers = new Set<number>();
     for (const [i, validatorIndex] of committee.entries()) {
       // no need to check flagIsTimelySource as if validator is not seen, it's participation status is 0
