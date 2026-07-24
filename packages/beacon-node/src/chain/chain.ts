@@ -625,6 +625,14 @@ export class BeaconChain implements IBeaconChain {
       return null;
     }
 
+    if (slot > this.forkChoice.getHead().slot + SLOTS_PER_EPOCH) {
+      // Beyond a small window above the head, dialing the head state forward through
+      // empty slots is not justified: on a node that has fallen behind those slots are
+      // unprocessed, not skipped, and serving such a state fabricates a state (with a
+      // bogus state root) for a slot the node has never processed.
+      return null;
+    }
+
     if (opts?.allowRegen) {
       // Find closest canonical block to slot, then trigger regen
       const block = this.forkChoice.getCanonicalBlockClosestLteSlot(slot) ?? finalizedBlock;
